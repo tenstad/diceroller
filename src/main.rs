@@ -4,6 +4,7 @@ use gloo::events::EventListener;
 use rand::prelude::*;
 use std::fmt;
 use yew::prelude::*;
+use gloo::timers::callback::Timeout;
 
 struct Die(u8);
 
@@ -12,12 +13,15 @@ struct Dice(Die, Die);
 struct Model {
     keyboard_listener: Option<EventListener>,
     mouse_listener: Option<EventListener>,
+    timeout: Option<Timeout>,
     history: Vec<Dice>,
     prerolls: Vec<Dice>,
+    throwing: bool,
 }
 
 enum Msg {
     Roll,
+    Stop,
 }
 
 impl Model {
@@ -44,12 +48,14 @@ impl Component for Model {
             mouse_listener: None,
             history: vec![],
             prerolls: vec![],
+            timeout: None,
+            throwing: false,
         }
     }
 
-    fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
+    fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            Msg::Roll => {
+            Msg::Stop => {
                 let roll = match self.prerolls.pop() {
                     Some(roll) => roll,
                     _ => {
@@ -58,8 +64,18 @@ impl Component for Model {
                     }
                 };
                 self.history.push(roll);
+                self.throwing = false;
                 true
-            }
+            },
+            Msg::Roll => {
+                let handle = {
+                    let link = ctx.link().clone();
+                    Timeout::new(250, move || link.send_message(Msg::Stop))
+                };
+                self.timeout = Some(handle);
+                self.throwing = true;
+                true
+            },
         }
     }
 
@@ -84,17 +100,25 @@ impl Component for Model {
                     ">
                     
                     {
-                        match self.history.last() {
-                            Some(dice) => html! {
-                                <>
-                                    <span style="font-size: 45vw; color: #932724;">{format!("{}", dice.0)}</span>
-                                    <span style="font-size: 45vw; color: #CFB809;">{format!("{}", dice.1)}</span>
-                                </>
+                        match self.throwing {
+                            false => match self.history.last() {
+                                Some(dice) => html! {
+                                    <>
+                                        <span style="font-size: 45vw; color: #932724;">{format!("{}", dice.0)}</span>
+                                        <span style="font-size: 45vw; color: #CFB809;">{format!("{}", dice.1)}</span>
+                                    </>
+                                },
+                                _ => html! {
+                                    <>
+                                        <span  style="font-size: 10vw;">{"press 🖱️ or ⌨️"}</span>
+                                    </>
+                                },
                             },
-                            _ => html! {
-                                <>
-                                    <span  style="font-size: 10vw;">{"press 🖱️ or ⌨️"}</span>
-                                </>
+                            true => {
+                                html! {
+                                    <>
+                                    </>
+                                }
                             },
                         }
                     }
@@ -112,7 +136,6 @@ impl Component for Model {
 
         let link = ctx.link().clone();
         let keyboard_listener = EventListener::new(&target, "keydown", move |_: &Event| {
-            
             link.send_message(Msg::Roll)
         });
         self.keyboard_listener.replace(keyboard_listener);
